@@ -4,6 +4,13 @@ A ride-hailing app for Ghana, built in React + TypeScript. Rider app and driver
 app in one, with a live simulated fleet moving across a hand-built map of
 Greater Accra.
 
+**Live demo → https://eoforidanso.github.io/Ryde/**
+
+The deployed build runs on simulated state with no backend: GitHub Pages is
+static hosting, so the payments service in [`server/`](server) cannot run
+alongside it and sign-in is skipped. Run it locally to exercise the real
+Hubtel integration.
+
 ```bash
 npm install
 npm run dev
