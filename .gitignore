@@ -1,0 +1,19 @@
+node_modules
+dist
+.DS_Store
+.vite
+*.local
+
+# Secrets and local config — never commit these.
+.env
+.env.*
+!.env.example
+server/.env
+
+# SQLite databases hold real phone numbers, session hashes and ledger data.
+*.db
+*.db-wal
+*.db-shm
+
+# TypeScript incremental build cache
+*.tsbuildinfo
