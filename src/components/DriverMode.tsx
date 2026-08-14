@@ -3,10 +3,12 @@ import { haversineKm } from '../data/network';
 import { PLACES } from '../data/places';
 import { PRODUCT_BY_ID } from '../data/products';
 import { formatGHS } from '../lib/pricing';
-import { useRyde } from '../store/RydeStore';
+import { tierFor, weeklyChallenges } from '../lib/rewards';
+import { driverStats, useRyde } from '../store/RydeStore';
 import { ProductIcon } from './productIcon';
 import {
-  IconCar, IconChat, IconPhone, IconRoute, IconShield, IconStarFilled, IconUsers,
+  IconCar, IconChat, IconChevron, IconPhone, IconRoute, IconShield, IconStarFilled, IconTrophy,
+  IconUsers,
 } from './Icons';
 
 function initials(name: string) {
@@ -87,6 +89,48 @@ function TodayStats() {
   );
 }
 
+/**
+ * Tier and the nearest challenge, condensed to one row.
+ *
+ * The driver gets the whole picture in the Rewards sheet; what belongs on the
+ * working screens is the single next thing worth chasing, with the money on it.
+ */
+function RewardsRow() {
+  const { state, dispatch } = useRyde();
+  const stats = driverStats(state);
+  const standing = tierFor(stats.weekTrips, stats.rating);
+  const next = weeklyChallenges(stats)
+    .filter((c) => !c.done)
+    .sort((a, b) => b.progress / b.target - a.progress / a.target)[0];
+
+  return (
+    <button className="reward-row" onClick={() => dispatch({ type: 'sheet', sheet: 'rewards' })}>
+      <span className="tier-badge" style={{ background: standing.tier.colour }}>
+        <IconTrophy width={18} height={18} />
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span className="list-title">
+          {standing.tier.name} · {(standing.tier.commission * 100).toFixed(1)}% commission
+        </span>
+        <span className="list-sub">
+          {next
+            ? `${next.title} — ${Math.max(0, next.target - Math.floor(next.progress))} to go for ${formatGHS(next.reward).replace('.00', '')}`
+            : 'Every challenge cleared this week'}
+        </span>
+        {next && (
+          <span className="progress-track" style={{ margin: '8px 0 0' }}>
+            <span
+              className="progress-fill"
+              style={{ width: `${Math.min(100, (next.progress / next.target) * 100)}%` }}
+            />
+          </span>
+        )}
+      </span>
+      <IconChevron width={17} height={17} color="var(--muted)" />
+    </button>
+  );
+}
+
 function JourneyRail({ from, to, fromNote, toNote }: {
   from: string; to: string; fromNote?: string; toNote?: string;
 }) {
@@ -121,6 +165,7 @@ function OfflineSheet() {
         <p className="sheet-sub">Go online to start receiving trip requests around you.</p>
 
         <TodayStats />
+        <RewardsRow />
 
         <button className="btn btn-primary" onClick={() => dispatch({ type: 'driverOnline', on: true })}>
           <IconCar width={19} height={19} />
@@ -189,6 +234,7 @@ function SearchingSheet() {
         </p>
 
         <TodayStats />
+        <RewardsRow />
 
         <div className="section-label">Busiest right now</div>
         {[
@@ -428,15 +474,34 @@ function SummarySheet() {
           <div style={{ fontSize: 12.5, color: 'var(--text-dim)', fontWeight: 600, letterSpacing: '0.04em' }}>
             YOU EARNED
           </div>
-          <div className="balance-amount">{formatGHS(state.lastEarned)}</div>
+          <div className="balance-amount">{formatGHS(state.lastEarned + state.lastBonus)}</div>
           {last && (
             <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginTop: 4 }}>
               {last.km.toFixed(1)} km · {last.minutes} min
+              {state.lastBonus > 0 && ` · includes ${formatGHS(state.lastBonus)} challenge bonus`}
             </div>
           )}
         </div>
 
+        <div className="rated">
+          <span className="list-sub">{state.driverStars[0] === 5 ? 'The rider gave you' : 'The rider rated this trip'}</span>
+          <span className="rated-stars">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <IconStarFilled
+                key={n}
+                width={16}
+                height={16}
+                color={n <= (state.driverStars[0] ?? 5) ? 'var(--gold)' : 'var(--surface-3)'}
+              />
+            ))}
+          </span>
+          {state.fiveStarStreak > 0 && (
+            <span className="list-sub">{state.fiveStarStreak} five-star trips in a row</span>
+          )}
+        </div>
+
         <TodayStats />
+        <RewardsRow />
 
         <button className="btn btn-primary" onClick={() => dispatch({ type: 'driverDismissSummary' })}>
           Back online

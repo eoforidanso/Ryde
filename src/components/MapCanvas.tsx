@@ -5,6 +5,7 @@ import { MINOR_STREETS } from '../data/minorStreets';
 import { pointAt, sliceFrom, type LatLng } from '../lib/router';
 import { VIEW_H, VIEW_W, fitCamera, project, toSmoothPath } from '../lib/projection';
 import { useElementSize } from '../lib/useElementSize';
+import type { PickupZone } from '../lib/pickupZones';
 import { useMapView, useRyde } from '../store/RydeStore';
 
 /** Approximate Gulf of Guinea shoreline through the Accra–Tema coast. */
@@ -219,6 +220,31 @@ function DriverDots({ fleet, activeId, k }: { fleet: Driver[]; activeId?: string
   );
 }
 
+/**
+ * Alternative pickup points, drawn as rings with their predicted wait.
+ *
+ * Sized by wait rather than by importance: the quickest spot reads largest, so
+ * the map answers "where should I stand" before the rider opens the sheet.
+ */
+function PickupZones({ zones, k }: { zones: PickupZone[]; k: number }) {
+  return (
+    <g>
+      {zones.map((z) => {
+        const p = project(z);
+        return (
+          <g key={z.id} transform={`translate(${p.x} ${p.y}) scale(${k})`}>
+            <circle r={17} className="zone-ring" />
+            <circle r={10} fill="var(--brand)" opacity={0.22} />
+            <text className="zone-mark" y={3.5} textAnchor="middle">
+              {z.waitMinutes}
+            </text>
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 function PinPickup({ at, k }: { at: LatLng; k: number }) {
   const p = project(at);
   return (
@@ -261,7 +287,7 @@ function CarMarker({ at, bearing, bike, k }: { at: LatLng; bearing: number; bike
 }
 
 export default function MapCanvas() {
-  const { state } = useRyde();
+  const { state, advice } = useRyde();
   const view = useMapView();
   const { ref, width, height } = useElementSize<SVGSVGElement>();
 
@@ -285,8 +311,20 @@ export default function MapCanvas() {
     return null;
   }, [view.route, view.moving, view.parked, view.progress]);
 
+  /**
+   * While the rider is comparing pickup spots, the map is about the street
+   * corner rather than the city — at the idle zoom, points 400 m apart land on
+   * the same pixel and the rings pile up into one blob.
+   */
+  const zoneFocus = !state.driverMode && state.sheet === 'pickup'
+    ? [view.origin, ...advice.zones.map((z) => ({ lat: z.lat, lng: z.lng }))]
+    : null;
+
   const camera = useMemo(() => {
     const box = { vw, vh };
+    if (zoneFocus) {
+      return fitCamera(zoneFocus, { ...box, padding: 26, maxScale: 16, focusY: 0.26, usableH: 0.4 });
+    }
     if (view.following && view.route) {
       const ahead = view.moving ? sliceFrom(view.route.points, view.progress) : view.route.points;
       const focus = vehicle ? [vehicle.pos, ...ahead] : ahead;
@@ -298,7 +336,7 @@ export default function MapCanvas() {
       });
     }
     return fitCamera([view.origin], { ...box, padding: 60, maxScale: 1.55, focusY: 0.33, usableH: 0.55 });
-  }, [view, vehicle, vw, vh]);
+  }, [view, vehicle, vw, vh, zoneFocus]);
 
   /** One screen pixel expressed in world units, after the camera scale. */
   const pxPerUnit = (height > 0 ? height / vh : 1) * camera.scale;
@@ -370,6 +408,10 @@ export default function MapCanvas() {
             />
           </g>
         )}
+
+        {/* Drawn only while the pickup sheet is open, where the camera has
+            zoomed in far enough for the rings to be distinguishable. */}
+        {zoneFocus && <PickupZones zones={advice.zones} k={k} />}
 
         <PinPickup at={view.origin} k={k} />
         {view.destination && <PinDropoff at={view.destination} k={k} />}

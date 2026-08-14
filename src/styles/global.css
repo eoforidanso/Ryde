@@ -731,6 +731,8 @@ input {
 }
 
 .progress-track {
+  /* Used as a <span> inside challenge rows as well as a block-level bar. */
+  display: block;
   height: 4px;
   border-radius: 3px;
   background: var(--surface-3);
@@ -739,6 +741,7 @@ input {
 }
 
 .progress-fill {
+  display: block;
   height: 100%;
   border-radius: 3px;
   background: linear-gradient(90deg, var(--brand), var(--brand-bright));
@@ -1292,3 +1295,486 @@ input {
   padding: 18px 20px;
   margin-bottom: 14px;
 }
+
+/* ============================================================
+   Predictive pickup zones
+   ============================================================ */
+
+.zone-ring {
+  fill: rgba(20, 208, 125, 0.1);
+  stroke: var(--brand-bright);
+  stroke-width: 1.4;
+  stroke-dasharray: 3 3;
+  opacity: 0.75;
+}
+
+.zone-mark {
+  fill: var(--text);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  paint-order: stroke;
+  stroke: var(--ink);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+
+.zone-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(20, 208, 125, 0.3);
+  border-radius: var(--radius);
+  background: var(--brand-soft);
+  text-align: left;
+  transition: transform 0.16s var(--ease);
+}
+
+.zone-card:active { transform: scale(0.985); }
+
+.zone-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(20, 208, 125, 0.16);
+  color: var(--brand-bright);
+}
+
+.zone-main { flex: 1; min-width: 0; }
+
+.zone-title {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.zone-sub {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-save {
+  flex: none;
+  display: grid;
+  justify-items: center;
+  font-size: 19px;
+  font-weight: 780;
+  letter-spacing: -0.03em;
+  color: var(--brand-bright);
+  font-variant-numeric: tabular-nums;
+}
+
+.zone-save span {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.zone-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  text-align: left;
+}
+
+.zone-option.on {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.zone-wait {
+  flex: none;
+  display: grid;
+  justify-items: center;
+  width: 46px;
+  color: var(--brand-bright);
+  font-variant-numeric: tabular-nums;
+}
+
+.zone-wait strong { font-size: 21px; font-weight: 780; letter-spacing: -0.03em; }
+.zone-wait span { font-size: 10.5px; color: var(--muted); font-weight: 600; }
+
+/* ============================================================
+   Fare fairness
+   ============================================================ */
+
+.fare-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 13px;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  text-align: left;
+}
+
+.fare-alert.good { border-color: rgba(20, 208, 125, 0.28); background: var(--brand-soft); }
+.fare-alert.warn { border-color: rgba(242, 193, 78, 0.28); background: var(--gold-soft); }
+
+.fare-alert-icon { flex: none; margin-top: 1px; }
+.fare-alert.good .fare-alert-icon { color: var(--brand-bright); }
+.fare-alert.warn .fare-alert-icon { color: var(--gold); }
+
+.fare-alert-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+}
+
+.fare-alert-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.cap-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-soft);
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.cap-note svg { flex: none; margin-top: 1px; color: var(--brand-bright); }
+
+.factor {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 11px 2px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.factor:last-of-type { border-bottom: 0; }
+
+.factor-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+.factor.up .factor-mark { background: var(--gold-soft); color: var(--gold); }
+.factor.down .factor-mark { background: var(--brand-soft); color: var(--brand-bright); }
+
+.factor-title { display: block; font-size: 14px; font-weight: 640; letter-spacing: -0.01em; }
+.factor-sub { display: block; margin-top: 2px; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+
+.factor-amount {
+  flex: none;
+  font-size: 13.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.factor.down .factor-amount { color: var(--brand-bright); }
+
+.promise {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--brand-soft);
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.receipt-note {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ============================================================
+   Business dashboard
+   ============================================================ */
+
+.company-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border-radius: 13px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+}
+
+.seg-btn {
+  flex: 1;
+  padding: 8px 4px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--muted);
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+}
+
+.seg-btn.on { background: var(--surface-3); color: var(--text); }
+
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 148px;
+  padding: 4px 0 0;
+  margin-bottom: 14px;
+}
+
+.chart-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 5px;
+}
+
+.chart-value {
+  font-size: 10.5px;
+  font-weight: 650;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-track {
+  display: flex;
+  align-items: flex-end;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+}
+
+.chart-bar {
+  width: 100%;
+  border-radius: 6px 6px 3px 3px;
+  background: var(--surface-3);
+  min-height: 6px;
+}
+
+.chart-bar.live { background: linear-gradient(180deg, var(--brand-bright), var(--brand)); }
+
+.chart-label { font-size: 11px; color: var(--muted); font-weight: 600; }
+
+.limit-row { padding: 12px 2px; border-bottom: 1px solid var(--hairline); }
+.limit-row:last-of-type { border-bottom: 0; }
+
+.limit-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.limit-head .list-meta.over { color: #ff8a84; }
+
+.limit-bar {
+  display: block;
+  height: 6px;
+  margin-top: 9px;
+  border-radius: 99px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.limit-fill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--brand);
+  transition: width 0.4s var(--ease);
+}
+
+.limit-fill.near { background: var(--gold); }
+.limit-fill.over { background: var(--red); }
+
+.limit-legend {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.policy-note {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin: 12px 0;
+  padding: 11px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-soft);
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.policy-note.over { background: var(--red-soft); color: #ffc9c5; }
+
+.quick-chip.on {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--text);
+}
+
+/* ============================================================
+   Rewards — rider tiers and driver gamification
+   ============================================================ */
+
+.tier-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.tier-badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  color: #10160f;
+}
+
+.reward-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 13px;
+  margin: 12px 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  text-align: left;
+}
+
+.challenge {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.challenge:last-of-type { border-bottom: 0; }
+
+.challenge-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.challenge-reward {
+  flex: none;
+  font-size: 13.5px;
+  font-weight: 750;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
+.challenge-count {
+  display: block;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.leader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.leader:last-of-type { border-bottom: 0; }
+
+.leader.you {
+  padding: 10px 12px;
+  margin: 4px 0;
+  border-radius: var(--radius-sm);
+  border-bottom: 0;
+  background: var(--brand-soft);
+}
+
+.leader-rank {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  font-size: 12.5px;
+  font-weight: 750;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.leader.you .leader-rank { background: var(--brand); color: var(--ink); }
+
+.rated {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  margin: 12px 0;
+}
+
+.rated-stars { display: flex; gap: 3px; }

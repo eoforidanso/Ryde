@@ -16,9 +16,18 @@ import {
   type PaymentMethodId,
   type ProductId,
 } from '../data/products';
-import { quoteFor, trafficAt, type Quote, type TrafficState } from '../lib/pricing';
+import { formatGHS, quoteFor, trafficAt, type FareRules, type Quote, type TrafficState } from '../lib/pricing';
 import { buildRoute, nearestNode, pointAt, type LatLng, type Route } from '../lib/router';
 import { createJob, type DriverJob } from '../lib/driverJobs';
+import { fareRulesFor, forecastFare, type FareForecast } from '../lib/fairness';
+import { pickupAdvice, type PickupAdvice } from '../lib/pickupZones';
+import {
+  cashbackTierFor, pointsFor, splitFare, type AutoTopUpRule, type CashbackStanding,
+} from '../lib/loyalty';
+import { challengeJustCompleted, tierFor, type DriverStats } from '../lib/rewards';
+import {
+  BUSINESS_TRIPS, COMPANY, ME, checkPolicy, type BusinessTrip,
+} from '../data/business';
 
 /** Trips run compressed so a 25-minute ride plays out in about 27 seconds. */
 const TIME_SCALE = 55;
@@ -125,11 +134,41 @@ export interface State {
   onlineSeconds: number;
   driverLog: DriverLogEntry[];
   lastEarned: number;
+  /** Bonus paid by a challenge on the last trip, for the summary sheet. */
+  lastBonus: number;
+  /** Trips completed in the current rewards week. */
+  driverWeekTrips: number;
+  driverWeekEarnings: number;
+  /** Star ratings from recent trips, newest first. */
+  driverStars: number[];
+  fiveStarStreak: number;
+  /** Challenge ids already paid out this week, so a bonus lands once. */
+  claimedChallenges: string[];
   /** Trip id issued by the payments service; null when running standalone. */
   serverTripId: string | null;
-  sheet: null | 'safety' | 'payment' | 'fare' | 'schedule' | 'contact';
+
+  /** Whether the next trip is billed to the rider or to their company. */
+  tripProfile: 'personal' | 'business';
+  tripPurpose: string;
+  /** Business trips taken in this session, newest first. */
+  businessTrips: BusinessTrip[];
+  /** Company spend this session, on top of the seeded month to date. */
+  businessSessionSpend: number;
+
+  autoTopUp: AutoTopUpRule;
+  /** Contacts the next fare is split with. */
+  splitWith: string[];
+  points: number;
+  /** Cashback credited by the last completed trip, for the receipt. */
+  lastCashback: number;
+
+  sheet:
+    | null | 'safety' | 'payment' | 'fare' | 'schedule' | 'contact'
+    | 'pickup' | 'autoTopUp' | 'split' | 'points' | 'profile' | 'rewards';
   toast: string | null;
   scheduledFor: string | null;
+  /** Full-screen panels that sit outside the tab bar. */
+  panel: null | 'business';
 }
 
 type Action =
@@ -163,7 +202,14 @@ type Action =
   | { type: 'driverDismissSummary' }
   | { type: 'schedule'; when: string | null }
   | { type: 'serverTrip'; tripId: string | null }
-  | { type: 'syncWallet'; balance: number };
+  | { type: 'syncWallet'; balance: number }
+  | { type: 'panel'; panel: State['panel'] }
+  | { type: 'tripProfile'; profile: 'personal' | 'business' }
+  | { type: 'tripPurpose'; purpose: string }
+  | { type: 'autoTopUp'; rule: AutoTopUpRule }
+  | { type: 'toggleSplit'; contactId: string }
+  | { type: 'clearSplit' }
+  | { type: 'redeem'; points: number; credit: number };
 
 const seedHistory: CompletedTrip[] = [
   {
@@ -238,10 +284,26 @@ const initialState: State = {
   onlineSeconds: 6 * 3600 + 12 * 60,
   driverLog: [],
   lastEarned: 0,
+  lastBonus: 0,
+  driverWeekTrips: 31,
+  driverWeekEarnings: 742.5,
+  // Seeded from a solid week: enough stars for Silver, short of Gold's 4.75.
+  driverStars: [5, 5, 4, 5, 5, 5, 5, 4, 5, 5],
+  fiveStarStreak: 6,
+  claimedChallenges: [],
   serverTripId: null,
+  tripProfile: 'personal',
+  tripPurpose: 'Client meeting',
+  businessTrips: BUSINESS_TRIPS,
+  businessSessionSpend: 0,
+  autoTopUp: { on: true, threshold: 40, amount: 100 },
+  splitWith: [],
+  points: 3180,
+  lastCashback: 0,
   sheet: null,
   toast: null,
   scheduledFor: null,
+  panel: null,
 };
 
 function withRoute(state: State, pickup: Place, dropoff: Place | null): State {
@@ -324,10 +386,19 @@ function reducer(state: State, action: Action): State {
       if (!state.route || !state.dropoff || !state.driver) return { ...state, phase: 'idle' };
       const product = PRODUCT_BY_ID[state.productId];
       const traffic = trafficAt(state.now);
-      const quote = quoteFor(product, state.route, traffic, 1.5);
+      const quote = quoteFor(product, state.route, traffic, 1.5, fareRulesFor(state.dropoff));
       const total = Math.max(0, quote.fare - state.promoDiscount) + state.tip;
+      const stamp = Date.now();
+
+      const business = state.tripProfile === 'business';
+      const heads = state.splitWith.length + 1;
+      const share = splitFare(total, state.splitWith.length);
+      // The rider is charged their own share only; the rest is requested from
+      // the others, and does not touch this wallet until they pay it.
+      const owed = heads > 1 ? share.yours : total;
+
       const trip: CompletedTrip = {
-        id: `t-${Date.now()}`,
+        id: `t-${stamp}`,
         pickup: state.pickup.name,
         dropoff: state.dropoff.name,
         product: state.productId,
@@ -339,7 +410,93 @@ function reducer(state: State, action: Action): State {
         rating: state.rating,
         payment: state.payment,
       };
-      const paidFromWallet = state.payment !== 'cash';
+
+      const ledger: WalletEntry[] = [];
+      let balance = state.walletBalance;
+
+      /*
+       * A company trip never touches the rider's own money — it lands on the
+       * monthly invoice instead. Nor do we debit twice: when the payments
+       * service settled this trip, the balance we hold was already synced from
+       * its ledger, which is the authority.
+       */
+      const settledByServer = state.serverTripId !== null;
+      if (!business && !settledByServer && state.payment !== 'cash') {
+        balance -= owed;
+        ledger.push({
+          id: `w-${stamp}`,
+          label: `Trip — ${trip.dropoff}`,
+          detail: heads > 1 ? `Ryde Cash · split ${heads} ways` : 'Ryde Cash',
+          amount: -owed,
+          when: 'Just now',
+        });
+      }
+
+      /*
+       * Cashback and points reward the rider's own spend. Neither is earned on
+       * a trip the company paid for.
+       *
+       * Cashback moves money, so it is only credited when this app owns the
+       * balance. With the payments service running, its ledger is the
+       * authority and a credit it never issued would be a lie on screen —
+       * paying cashback for real is server work, not a client concern.
+       */
+      const spend30d = state.history.reduce((s, t) => s + t.fare, 0);
+      const cashback = business || settledByServer
+        ? 0
+        : Math.round(owed * cashbackTierFor(spend30d).tier.rate * 100) / 100;
+      const earnedPoints = business ? 0 : pointsFor(owed);
+
+      if (cashback > 0) {
+        balance += cashback;
+        ledger.push({
+          id: `w-${stamp}-cb`,
+          label: `Cashback — ${cashbackTierFor(spend30d).tier.name}`,
+          detail: `${(cashbackTierFor(spend30d).tier.rate * 100).toFixed(1)}% of ${formatGHS(owed)}`,
+          amount: cashback,
+          when: 'Just now',
+        });
+      }
+
+      // Top up before the balance can strand the rider on their next trip.
+      const rule = state.autoTopUp;
+      const topUpFired = rule.on && !business && !settledByServer && balance < rule.threshold;
+      if (topUpFired) {
+        balance += rule.amount;
+        ledger.push({
+          id: `w-${stamp}-auto`,
+          label: 'Auto top up',
+          detail: `Balance fell below ${formatGHS(rule.threshold)} · MTN MoMo`,
+          amount: rule.amount,
+          when: 'Just now',
+        });
+      }
+
+      const policy = checkPolicy(ME, total, state.businessSessionSpend);
+      const businessTrip: BusinessTrip | null = business
+        ? {
+            id: `bt-${stamp}`,
+            employeeId: ME.id,
+            when: 'Just now',
+            from: state.pickup.name,
+            to: state.dropoff.name,
+            product: state.productId,
+            fare: total,
+            purpose: state.tripPurpose,
+            flagged: !policy.withinPolicy,
+          }
+        : null;
+
+      const toast = business
+        ? policy.withinPolicy
+          ? `Billed to ${COMPANY.name} · ${state.tripPurpose}`
+          : `Billed to ${COMPANY.name} — over limit, flagged for approval`
+        : topUpFired
+          ? `Balance was low — ${formatGHS(rule.amount)} topped up automatically`
+          : cashback > 0
+            ? `${formatGHS(cashback)} cashback and ${earnedPoints} points added`
+            : 'Thanks for riding with Ryde';
+
       return {
         ...state,
         phase: 'idle',
@@ -353,17 +510,17 @@ function reducer(state: State, action: Action): State {
         promo: null,
         promoDiscount: 0,
         serverTripId: null,
-              rating: null,
+        rating: null,
         tip: 0,
+        splitWith: [],
         history: [trip, ...state.history],
-        walletBalance: paidFromWallet ? state.walletBalance - total : state.walletBalance,
-        walletLedger: paidFromWallet
-          ? [
-              { id: `w-${Date.now()}`, label: `Trip — ${trip.dropoff}`, detail: 'Ryde Cash', amount: -total, when: 'Just now' },
-              ...state.walletLedger,
-            ]
-          : state.walletLedger,
-        toast: 'Thanks for riding with Ryde',
+        walletBalance: Math.round(balance * 100) / 100,
+        walletLedger: [...ledger, ...state.walletLedger],
+        points: state.points + earnedPoints,
+        lastCashback: cashback,
+        businessTrips: businessTrip ? [businessTrip, ...state.businessTrips] : state.businessTrips,
+        businessSessionSpend: business ? state.businessSessionSpend + total : state.businessSessionSpend,
+        toast,
       };
     }
 
@@ -447,12 +604,43 @@ function reducer(state: State, action: Action): State {
     case 'driverComplete': {
       const job = state.driverJob;
       if (!job) return state;
+
+      // The rider rates the trip. Most trips are five stars; the occasional
+      // four is what makes the streak worth protecting.
+      const stars = Math.random() < 0.82 ? 5 : Math.random() < 0.7 ? 4 : 3;
+      const driverStars = [stars, ...state.driverStars].slice(0, 40);
+      const rating = driverStars.reduce((s, n) => s + n, 0) / driverStars.length;
+
+      const before = driverStats(state);
+      const after: DriverStats = {
+        weekTrips: state.driverWeekTrips + 1,
+        weekEarnings: state.driverWeekEarnings + job.earnings,
+        fiveStarStreak: stars === 5 ? state.fiveStarStreak + 1 : 0,
+        rating,
+      };
+
+      // A challenge pays once per week, into the same earnings figure the top
+      // bar shows — the bonus is money, not a notification.
+      const crossed = challengeJustCompleted(before, after);
+      const bonus = crossed && !state.claimedChallenges.includes(crossed.id) ? crossed.reward : 0;
+
       return {
         ...state,
         driverPhase: 'summary',
-        driverEarnings: state.driverEarnings + job.earnings,
+        driverEarnings: state.driverEarnings + job.earnings + bonus,
         driverTripsToday: state.driverTripsToday + 1,
+        driverWeekTrips: after.weekTrips,
+        driverWeekEarnings: after.weekEarnings + bonus,
+        driverStars,
+        fiveStarStreak: after.fiveStarStreak,
+        claimedChallenges: bonus > 0 && crossed
+          ? [...state.claimedChallenges, crossed.id]
+          : state.claimedChallenges,
         lastEarned: job.earnings,
+        lastBonus: bonus,
+        toast: bonus > 0 && crossed
+          ? `${crossed.title} — ${formatGHS(bonus)} bonus added`
+          : state.toast,
         driverLog: [
           {
             id: job.id,
@@ -481,6 +669,69 @@ function reducer(state: State, action: Action): State {
     case 'schedule':
       return { ...state, scheduledFor: action.when, sheet: null, toast: action.when ? `Ride scheduled for ${action.when}` : null };
 
+    case 'panel':
+      return { ...state, panel: action.panel, sheet: null };
+
+    case 'tripProfile':
+      return {
+        ...state,
+        tripProfile: action.profile,
+        sheet: null,
+        toast:
+          action.profile === 'business'
+            ? `Billing to ${COMPANY.name}`
+            : 'Billing to your personal account',
+      };
+
+    case 'tripPurpose':
+      return { ...state, tripPurpose: action.purpose, sheet: null };
+
+    case 'autoTopUp':
+      return {
+        ...state,
+        autoTopUp: action.rule,
+        sheet: null,
+        toast: action.rule.on
+          ? `Auto top up ${formatGHS(action.rule.amount)} when you drop below ${formatGHS(action.rule.threshold)}`
+          : 'Auto top up turned off',
+      };
+
+    case 'toggleSplit': {
+      const on = state.splitWith.includes(action.contactId);
+      return {
+        ...state,
+        splitWith: on
+          ? state.splitWith.filter((c) => c !== action.contactId)
+          : [...state.splitWith, action.contactId],
+      };
+    }
+
+    case 'clearSplit':
+      return { ...state, splitWith: [] };
+
+    case 'redeem': {
+      if (state.points < action.points) {
+        return { ...state, toast: 'Not enough points yet' };
+      }
+      return {
+        ...state,
+        points: state.points - action.points,
+        walletBalance: Math.round((state.walletBalance + action.credit) * 100) / 100,
+        walletLedger: [
+          {
+            id: `w-${Date.now()}-pts`,
+            label: 'Points redeemed',
+            detail: `${action.points.toLocaleString()} Ryde Points`,
+            amount: action.credit,
+            when: 'Just now',
+          },
+          ...state.walletLedger,
+        ],
+        sheet: null,
+        toast: `${formatGHS(action.credit)} ride credit added`,
+      };
+    }
+
     default:
       return state;
   }
@@ -500,6 +751,17 @@ function phaseDuration(state: State, quote: Quote | null): number {
     default:
       return 0;
   }
+}
+
+/** The driver's week so far, in the shape the rewards model reads. */
+export function driverStats(state: State): DriverStats {
+  const stars = state.driverStars;
+  return {
+    weekTrips: state.driverWeekTrips,
+    weekEarnings: state.driverWeekEarnings,
+    fiveStarStreak: state.fiveStarStreak,
+    rating: stars.length ? stars.reduce((s, n) => s + n, 0) / stars.length : 5,
+  };
 }
 
 /** Duration in simulated seconds of each driving leg. */
@@ -558,7 +820,10 @@ function driveTick(
   if (s.driverPhase === 'idle') {
     const elapsed = s.driverElapsed + dtReal;
     if (elapsed >= searchTarget.current) {
-      const job = createJob(s.driverPos, traffic);
+      // The driver's tier sets the commission on this job, so climbing the
+      // ladder shows up in the very next offer they are shown.
+      const { commission } = tierFor(s.driverWeekTrips, driverStats(s).rating).tier;
+      const job = createJob(s.driverPos, traffic, commission);
       searchTarget.current = SEARCH_MIN_S + Math.random() * (SEARCH_MAX_S - SEARCH_MIN_S);
       if (job) {
         dispatch({ type: 'driverIncoming', job });
@@ -633,6 +898,15 @@ interface Ctx {
   quotes: Quote[];
   quote: Quote | null;
   total: number;
+  /** Fare policy in force for this destination — the cap and why it applies. */
+  rules: FareRules;
+  /** Where the fare is heading if the rider waits, or null when it is flat. */
+  forecast: FareForecast | null;
+  /** Faster places to be collected from, ranked. */
+  advice: PickupAdvice;
+  cashback: CashbackStanding;
+  /** Rider spend over the trailing month, which sets the cashback tier. */
+  spend30d: number;
 }
 
 const RydeContext = createContext<Ctx | null>(null);
@@ -654,10 +928,12 @@ export function RydeProvider({ children }: { children: ReactNode }) {
     return Math.max(0.4, best);
   }, [state.fleet, state.pickup, state.productId]);
 
+  const rules = useMemo(() => fareRulesFor(state.dropoff), [state.dropoff]);
+
   const quotes = useMemo(() => {
     if (!state.route) return [];
-    return PRODUCTS.map((p) => quoteFor(p, state.route!, traffic, nearestDriverKm));
-  }, [state.route, traffic, nearestDriverKm]);
+    return PRODUCTS.map((p) => quoteFor(p, state.route!, traffic, nearestDriverKm, rules));
+  }, [state.route, traffic, nearestDriverKm, rules]);
 
   const quote = useMemo(
     () => quotes.find((q) => q.product.id === state.productId) ?? null,
@@ -665,6 +941,34 @@ export function RydeProvider({ children }: { children: ReactNode }) {
   );
 
   const total = quote ? Math.max(0, quote.fare - state.promoDiscount) : 0;
+
+  /**
+   * Re-quoting the route across the next two and a half hours is not free, so
+   * it is keyed to the minute rather than to `now` — which ticks continuously.
+   */
+  const minuteStamp = Math.floor(state.now.getTime() / 60000);
+  const forecast = useMemo(() => {
+    if (!state.route || state.phase !== 'choosing') return null;
+    return forecastFare(
+      PRODUCT_BY_ID[state.productId],
+      state.route,
+      nearestDriverKm,
+      new Date(minuteStamp * 60000),
+      rules,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.route, state.productId, state.phase, nearestDriverKm, rules, minuteStamp]);
+
+  const advice = useMemo(
+    () => pickupAdvice(state.pickup, state.fleet, state.productId, traffic),
+    [state.pickup, state.fleet, state.productId, traffic],
+  );
+
+  const spend30d = useMemo(
+    () => state.history.reduce((s, t) => s + t.fare, 0),
+    [state.history],
+  );
+  const cashback = useMemo(() => cashbackTierFor(spend30d), [spend30d]);
 
   // Master simulation loop: advances the active phase and drifts the fleet.
   const quoteRef = useRef(quote);
@@ -745,8 +1049,8 @@ export function RydeProvider({ children }: { children: ReactNode }) {
   }, [state.toast]);
 
   const value = useMemo<Ctx>(
-    () => ({ state, dispatch, traffic, quotes, quote, total }),
-    [state, traffic, quotes, quote, total],
+    () => ({ state, dispatch, traffic, quotes, quote, total, rules, forecast, advice, cashback, spend30d }),
+    [state, traffic, quotes, quote, total, rules, forecast, advice, cashback, spend30d],
   );
 
   return <RydeContext.Provider value={value}>{children}</RydeContext.Provider>;

@@ -61,9 +61,44 @@ fare, rating and tip. Trips run time-compressed, so a 25-minute ride to the
 airport plays out in about half a minute. The driver you get is the nearest one
 in the simulated fleet who drives the product you picked.
 
-**Driver mode.** Flip the switch in Account for the earnings dashboard, the
-online toggle, incoming trip requests you can accept or decline, and the
-surge hotspots.
+**Driver mode.** Flip the switch in Account for a full driving app: go online,
+offers arrive on the map with a real countdown, and accepting drives you
+pickup → kerb → trip → summary with turn banners off the same road graph.
+
+**Predictive pickup spots.** `src/lib/pickupZones.ts` ranks the points around
+you by when you would actually be moving — the later of your walk and the
+driver's drive, not the driver's ETA alone. Candidates include named landmarks,
+junctions, and points sampled every 200 m along the roads themselves, because
+"walk up to the main road" is usually the honest answer. The model charges a
+driver for the crawl off the network to reach you, which is what makes one kerb
+genuinely faster than another. A suggestion only interrupts you when it saves
+two minutes or more.
+
+**A fare engine that shows its working.** `src/lib/fairness.ts` caps the demand
+multiplier at 1.5× — below the 1.6× the surge model reaches at peak, so the cap
+actually binds — and at 1.2× for hospital trips, which nobody chooses to take.
+"Why this price?" explains in plain words which inputs moved the fare, and the
+predictive alert re-quotes your route forward through the traffic model in
+quarter-hour steps: wait 30 minutes and save GH₵14, or book now before the
+16:00 peak. Nothing there is invented — every line comes from the same
+`quoteFor` the booking screen quotes with.
+
+**Ryde for Business.** A company account with employee trip logs, per-employee
+monthly limits, department cost centres and monthly invoices. Switch the trip
+profile at booking and the fare goes on the invoice instead of your wallet. A
+trip over someone's limit is never blocked — it goes ahead and is flagged for
+finance, because stranding someone in Ashaiman at 21:00 over a GH₵40 overage is
+not a policy.
+
+**Wallet rules.** Auto top-up before a low balance can strand you, split fare
+where the rider carries the odd pesewas rather than rounding everyone up,
+cashback tiers on trailing 30-day spend, and points redeemable for ride credit
+at a rate that rewards saving.
+
+**Driver rewards that pay.** Bronze → Platinum tiers set the commission on the
+very next offer you are shown, weekly challenges pay a bonus into the same
+earnings figure the top bar carries, and the zone leaderboard ranks you by the
+week you have actually had. Nothing in there is a badge for its own sake.
 
 ## Payments
 

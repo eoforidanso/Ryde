@@ -125,3 +125,43 @@ export const IconCalendar = (p: P) => (
 export const IconUsers = (p: P) => (
   <svg {...base(p)}><circle cx="9.4" cy="8.4" r="3.2" /><path d="M3.6 19.4a5.8 5.8 0 0 1 11.6 0" /><path d="M16 5.6a3.2 3.2 0 0 1 0 5.6M17.4 14.4a5.8 5.8 0 0 1 3 5" /></svg>
 );
+
+export const IconWalk = (p: P) => (
+  <svg {...base(p)}><circle cx="13.2" cy="4.6" r="1.9" /><path d="M12.4 20.4 10 15.6l-2.4 1.9-1.2 3.4" /><path d="m14.4 8.2-3.6 1.5L9 13l3 1.4 1.6 3.2 1.4 2.8" /><path d="m14.4 8.2 3 1.6 1.4 2.6" /></svg>
+);
+
+export const IconTrophy = (p: P) => (
+  <svg {...base(p)}><path d="M7.4 4.4h9.2v4.2a4.6 4.6 0 1 1-9.2 0Z" /><path d="M7.4 6h-2a2 2 0 0 0 2 3.6M16.6 6h2a2 2 0 0 1-2 3.6" /><path d="M12 13.2v3.4M8.8 19.6h6.4" /></svg>
+);
+
+export const IconTarget = (p: P) => (
+  <svg {...base(p)}><circle cx="12" cy="12" r="8.4" /><circle cx="12" cy="12" r="4.6" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /></svg>
+);
+
+export const IconBuilding = (p: P) => (
+  <svg {...base(p)}><path d="M4.4 20.4V5.6a1.4 1.4 0 0 1 1.4-1.4h7.2a1.4 1.4 0 0 1 1.4 1.4v14.8" /><path d="M14.4 10.4h4.2a1.4 1.4 0 0 1 1.4 1.4v8.6M3.2 20.4h17.6" /><path d="M7.6 8h3.2M7.6 11.6h3.2M7.6 15.2h3.2M17 14h.01M17 17.4h.01" /></svg>
+);
+
+export const IconTrendDown = (p: P) => (
+  <svg {...base(p)}><path d="M4 7.4 10 13.6l3.4-3.4L20 16.8" /><path d="M20 12.2v4.6h-4.6" /></svg>
+);
+
+export const IconTrendUp = (p: P) => (
+  <svg {...base(p)}><path d="M4 16.6 10 10.4l3.4 3.4L20 7.2" /><path d="M20 11.8V7.2h-4.6" /></svg>
+);
+
+export const IconInfo = (p: P) => (
+  <svg {...base(p)}><circle cx="12" cy="12" r="8.5" /><path d="M12 11.2v5M12 7.9h.01" /></svg>
+);
+
+export const IconRepeat = (p: P) => (
+  <svg {...base(p)}><path d="M4.6 10.4a7.4 7.4 0 0 1 12.6-4.2l2.2 2.2" /><path d="M19.4 4.6v4h-4M19.4 13.6a7.4 7.4 0 0 1-12.6 4.2l-2.2-2.2" /><path d="M4.6 19.4v-4h4" /></svg>
+);
+
+export const IconGift = (p: P) => (
+  <svg {...base(p)}><rect x="3.8" y="9.4" width="16.4" height="10.8" rx="1.8" /><path d="M2.8 9.4h18.4v3.2H2.8zM12 9.4v10.8" /><path d="M12 9.4c-2.6 0-4.4-.7-4.4-2.4a2 2 0 0 1 4-.4Zm0 0c2.6 0 4.4-.7 4.4-2.4a2 2 0 0 0-4-.4Z" /></svg>
+);
+
+export const IconChart = (p: P) => (
+  <svg {...base(p)}><path d="M4 20.2V4.4M4 20.2h16" /><rect x="7.2" y="12.4" width="3" height="5.4" rx=".8" /><rect x="12.2" y="8.6" width="3" height="9.2" rx=".8" /><rect x="17.2" y="5.4" width="3" height="12.4" rx=".8" /></svg>
+);

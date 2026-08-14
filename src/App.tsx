@@ -7,6 +7,7 @@ import InstallPrompt, { OfflineChip } from './components/InstallPrompt';
 import * as api from './lib/api';
 import { ChoosingSheet, CompleteSheet, IdleSheet, MatchingSheet, TripSheet } from './components/RideSheets';
 import { AccountTab, ActivityTab, WalletTab } from './components/Tabs';
+import BusinessPanel from './components/BusinessPanel';
 import DriverSheet, { DriverTopBar } from './components/DriverMode';
 import { IconCar, IconClock, IconShield, IconUser, IconWallet } from './components/Icons';
 import { useRyde, type Tab } from './store/RydeStore';
@@ -96,7 +97,7 @@ export default function App() {
   const { state, dispatch } = useRyde();
   const { status, signIn } = useSession();
   const onTrip = ['matching', 'arriving', 'arrived', 'ontrip', 'complete'].includes(state.phase);
-  const showTabs = !state.driverMode && state.phase !== 'search' && !onTrip;
+  const showTabs = !state.driverMode && state.phase !== 'search' && !onTrip && !state.panel;
 
   if (status === 'checking') {
     return (
@@ -162,6 +163,9 @@ export default function App() {
               {state.tab === 'account' && <AccountTab />}
             </>
           )}
+
+          {/* Sits above the tabs it was opened from, with its own back arrow. */}
+          {state.panel === 'business' && !state.driverMode && <BusinessPanel />}
 
           <Modals />
 

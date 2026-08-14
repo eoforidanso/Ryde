@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PRODUCT_BY_ID } from '../data/products';
+import { COMPANY } from '../data/business';
 import * as api from '../lib/api';
 import { formatGHS } from '../lib/pricing';
 import { useRyde } from '../store/RydeStore';
 import { ProductIcon } from './productIcon';
 import {
-  IconAlert, IconBriefcase, IconCar, IconChevron, IconHome, IconPlus, IconReceipt,
-  IconRoute, IconShield, IconStarFilled, IconUsers, IconWallet,
+  IconAlert, IconBriefcase, IconBuilding, IconCar, IconChevron, IconGift, IconHome, IconPlus,
+  IconReceipt, IconRepeat, IconShield, IconStarFilled, IconUsers, IconWallet,
 } from './Icons';
 
 /* ------------------------------------------------------------------ */
@@ -76,7 +77,7 @@ export function ActivityTab() {
 const TOP_UPS = [20, 50, 100, 200];
 
 export function WalletTab() {
-  const { state, dispatch } = useRyde();
+  const { state, dispatch, cashback, spend30d } = useRyde();
   const [busy, setBusy] = useState(false);
 
   // Pull the authoritative balance whenever the tab opens.
@@ -154,7 +155,69 @@ export function WalletTab() {
           You will get a MoMo prompt on your phone to approve the top up.
         </p>
 
-        <div className="section-label">Payment methods</div>
+        <div className="section-label">Rewards</div>
+
+        <div className="tier-card" style={{ borderColor: cashback.tier.colour }}>
+          <span className="tier-badge" style={{ background: cashback.tier.colour }}>
+            <IconStarFilled width={18} height={18} />
+          </span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 750, letterSpacing: '-0.02em' }}>
+              {cashback.tier.name} · {(cashback.tier.rate * 100).toFixed(1)}% back
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{cashback.tier.perk}</div>
+          </span>
+        </div>
+        {cashback.next && (
+          <>
+            <div className="limit-bar" style={{ marginTop: 10 }}>
+              <span className="limit-fill" style={{ width: `${cashback.progress * 100}%` }} />
+            </div>
+            <div className="limit-legend">
+              <span>{formatGHS(spend30d)} in 30 days</span>
+              <span>{formatGHS(cashback.next.minSpend)} for {cashback.next.name}</span>
+            </div>
+          </>
+        )}
+
+        <button className="list-row" onClick={() => dispatch({ type: 'sheet', sheet: 'points' })}>
+          <span className="list-icon gold"><IconGift /></span>
+          <span className="list-main">
+            <span className="list-title">Ryde Points</span>
+            <span className="list-sub">
+              {state.points.toLocaleString()} points · about {formatGHS(state.points / 100)} of rides
+            </span>
+          </span>
+          <IconChevron width={17} height={17} color="var(--muted)" />
+        </button>
+
+        <div className="section-label">Rules and methods</div>
+        <button className="list-row" onClick={() => dispatch({ type: 'sheet', sheet: 'autoTopUp' })}>
+          <span className={`list-icon ${state.autoTopUp.on ? 'accent' : ''}`}><IconRepeat /></span>
+          <span className="list-main">
+            <span className="list-title">Auto top up</span>
+            <span className="list-sub">
+              {state.autoTopUp.on
+                ? `${formatGHS(state.autoTopUp.amount)} when you fall below ${formatGHS(state.autoTopUp.threshold)}`
+                : 'Off — top up manually'}
+            </span>
+          </span>
+          <IconChevron width={17} height={17} color="var(--muted)" />
+        </button>
+
+        <button className="list-row" onClick={() => dispatch({ type: 'sheet', sheet: 'split' })}>
+          <span className={`list-icon ${state.splitWith.length ? 'accent' : ''}`}><IconUsers /></span>
+          <span className="list-main">
+            <span className="list-title">Split fare</span>
+            <span className="list-sub">
+              {state.splitWith.length
+                ? `Next trip splits ${state.splitWith.length + 1} ways`
+                : 'Share the cost of a trip with friends'}
+            </span>
+          </span>
+          <IconChevron width={17} height={17} color="var(--muted)" />
+        </button>
+
         <button className="list-row" onClick={() => dispatch({ type: 'sheet', sheet: 'payment' })}>
           <span className="list-icon accent"><IconWallet /></span>
           <span className="list-main">
@@ -253,7 +316,7 @@ export function AccountTab() {
         {[
           { icon: <IconShield />, title: 'Safety centre', sub: 'Trusted contacts, PIN verification', action: () => dispatch({ type: 'sheet', sheet: 'safety' }) },
           { icon: <IconUsers />, title: 'Invite friends', sub: 'You both get GH₵20 off — code AMA4418', action: () => dispatch({ type: 'toast', message: 'Referral code AMA4418 copied' }) },
-          { icon: <IconRoute />, title: 'Ryde for Business', sub: 'Bill trips to your company account', action: () => dispatch({ type: 'toast', message: 'Business profile coming soon' }) },
+          { icon: <IconBuilding />, title: 'Ryde for Business', sub: `${COMPANY.name} · trip logs, limits and invoices`, action: () => dispatch({ type: 'panel', panel: 'business' }) },
           { icon: <IconAlert />, title: 'Help and disputes', sub: 'Report a fare or a lost item', action: () => dispatch({ type: 'toast', message: 'Our Accra support team replies in minutes' }) },
         ].map((row) => (
           <button key={row.title} className="list-row" onClick={row.action}>

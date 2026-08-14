@@ -41,7 +41,7 @@ const NOTES = [
   'Please call when you arrive',
 ];
 
-/** Commission Ryde retains, matching the payments service default. */
+/** Commission Ryde retains by default, matching the payments service. */
 const COMMISSION = 0.2;
 
 /** Products a car driver would be offered. */
@@ -58,7 +58,11 @@ function pick<T>(items: T[]): T {
  * no driver would ever see — and the fare comes from the same engine the rider
  * app quotes with, so both sides of the marketplace agree on the number.
  */
-export function createJob(from: LatLng, traffic: TrafficState): DriverJob | null {
+export function createJob(
+  from: LatLng,
+  traffic: TrafficState,
+  commission = COMMISSION,
+): DriverJob | null {
   const nearby = PLACES.filter((p) => {
     const km = haversineKm(from, p);
     return km > 0.6 && km < 7;
@@ -106,7 +110,7 @@ export function createJob(from: LatLng, traffic: TrafficState): DriverJob | null
     trip,
     preview,
     fare: quote.fare,
-    earnings: Math.round(quote.fare * (1 - COMMISSION) * 2) / 2,
+    earnings: Math.round(quote.fare * (1 - commission) * 2) / 2,
     pickupMinutes: Math.max(
       1,
       Math.round((toPickup.baseMinutes * (1 + (traffic.factor - 1) * 0.8))),

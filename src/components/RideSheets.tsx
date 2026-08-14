@@ -2,14 +2,75 @@ import { useMemo, type ReactNode } from 'react';
 import { PLACE_BY_ID, SAVED, type Place } from '../data/places';
 import { PAYMENT_METHODS, PRODUCT_BY_ID } from '../data/products';
 import { formatGHS, formatGHSShort } from '../lib/pricing';
+import { pointsFor, splitFare } from '../lib/loyalty';
+import { COMPANY } from '../data/business';
 import { haversineKm } from '../data/network';
 import * as api from '../lib/api';
 import { useRyde } from '../store/RydeStore';
 import { ProductIcon } from './productIcon';
 import {
-  IconBriefcase, IconCalendar, IconChat, IconChevron, IconClock, IconHome, IconLightning,
-  IconPhone, IconPin, IconSearch, IconShare, IconShield, IconStar, IconStarFilled, IconX,
+  IconBriefcase, IconBuilding, IconCalendar, IconChat, IconChevron, IconHome,
+  IconInfo, IconLightning, IconPhone, IconPin, IconSearch, IconShare, IconShield, IconStar,
+  IconStarFilled, IconTrendDown, IconTrendUp, IconUsers, IconWalk, IconX,
 } from './Icons';
+
+/* ------------------------------------------------------------------ */
+/* Predictive pickup                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The one suggestion worth interrupting for.
+ *
+ * Shown only when a nearby point beats standing still by two minutes or more,
+ * and it always states both halves of the trade: the walk and what it buys.
+ */
+export function PickupSuggestion() {
+  const { dispatch, advice } = useRyde();
+  const best = advice.best;
+  if (!best) return null;
+
+  return (
+    <button className="zone-card" onClick={() => dispatch({ type: 'sheet', sheet: 'pickup' })}>
+      <span className="zone-icon"><IconWalk width={19} height={19} /></span>
+      <span className="zone-main">
+        <span className="zone-title">
+          Faster pickup {best.walkMinutes <= 1 ? 'just here' : `${best.walkMinutes} min walk`}
+        </span>
+        <span className="zone-sub">{best.name} · {best.reason}</span>
+      </span>
+      <span className="zone-save">
+        −{advice.savingMinutes}
+        <span>min</span>
+      </span>
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Fare alerts                                                         */
+/* ------------------------------------------------------------------ */
+
+/** Predictive alert: what the same trip costs if the rider waits. */
+function FareAlert() {
+  const { forecast, dispatch } = useRyde();
+  if (!forecast) return null;
+  const falling = forecast.direction === 'falling';
+
+  return (
+    <button
+      className={`fare-alert ${falling ? 'good' : 'warn'}`}
+      onClick={() => dispatch({ type: 'sheet', sheet: 'fare' })}
+    >
+      <span className="fare-alert-icon">
+        {falling ? <IconTrendDown width={17} height={17} /> : <IconTrendUp width={17} height={17} />}
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span className="fare-alert-title">{forecast.headline}</span>
+        <span className="fare-alert-sub">{forecast.detail}</span>
+      </span>
+    </button>
+  );
+}
 
 function initials(name: string) {
   return name.split(' ').map((n) => n[0]).slice(0, 2).join('');
@@ -83,10 +144,16 @@ export function IdleSheet() {
           >
             Send a parcel
           </button>
+          <button className="quick-chip" onClick={() => dispatch({ type: 'sheet', sheet: 'pickup' })}>
+            <IconWalk width={14} height={14} style={{ verticalAlign: -2, marginRight: 6 }} />
+            Pickup spots
+          </button>
           <button className="quick-chip" onClick={() => dispatch({ type: 'openSearch', field: 'pickup' })}>
             Change pickup
           </button>
         </div>
+
+        <PickupSuggestion />
 
         {shortcut(SAVED.home, <IconHome />, 'Home', SAVED.home.area)}
         {shortcut(SAVED.work, <IconBriefcase />, 'Work', SAVED.work.area)}
@@ -103,6 +170,8 @@ export function IdleSheet() {
 export function ChoosingSheet() {
   const { state, dispatch, quotes, quote, total, traffic } = useRyde();
   const payment = PAYMENT_METHODS.find((p) => p.id === state.payment)!;
+  const business = state.tripProfile === 'business';
+  const splitCount = state.splitWith.length;
 
   /**
    * Ask the payments service to price and record the trip before dispatching a
@@ -154,15 +223,28 @@ export function ChoosingSheet() {
           </button>
         </div>
 
-        {traffic.surge > 1 && (
+        {quote && quote.surge > 1 && (
           <div
             className="chip warn"
             style={{ marginBottom: 12, backdropFilter: 'none', background: 'var(--gold-soft)', border: '1px solid rgba(242,193,78,0.28)' }}
           >
             <span className="dot" />
-            Fares are {traffic.surge.toFixed(1)}× — {traffic.reason.toLowerCase()}
+            Fares are {quote.surge.toFixed(1)}× — {traffic.reason.toLowerCase()}
           </div>
         )}
+
+        {quote && quote.capSaving > 0 && (
+          <div className="cap-note">
+            <IconShield width={15} height={15} />
+            <span>
+              Demand asked for {quote.rawSurge.toFixed(1)}× — capped at {quote.surge.toFixed(1)}×,
+              saving you {formatGHS(quote.capSaving)}
+            </span>
+          </div>
+        )}
+
+        <FareAlert />
+        <PickupSuggestion />
 
         <div className="ride-list">
           {quotes.map((q) => (
@@ -202,9 +284,29 @@ export function ChoosingSheet() {
           <IconChevron width={16} height={16} color="var(--muted)" />
         </button>
 
+        <button className="opt-row" onClick={() => dispatch({ type: 'sheet', sheet: 'profile' })}>
+          {business
+            ? <IconBuilding width={18} height={18} color="var(--brand-bright)" />
+            : <IconUsers width={18} height={18} color="var(--muted)" />}
+          <span className="label">{business ? COMPANY.name : 'Personal trip'}</span>
+          <span className="value">{business ? state.tripPurpose : 'Switch profile'}</span>
+          <IconChevron width={16} height={16} color="var(--muted)" />
+        </button>
+
+        <button className="opt-row" onClick={() => dispatch({ type: 'sheet', sheet: 'split' })}>
+          <IconUsers width={18} height={18} color={splitCount ? 'var(--brand-bright)' : 'var(--muted)'} />
+          <span className="label">Split fare</span>
+          <span className="value">
+            {splitCount
+              ? `${formatGHS(splitFare(total, splitCount).each)} each · ${splitCount + 1} people`
+              : 'Just me'}
+          </span>
+          <IconChevron width={16} height={16} color="var(--muted)" />
+        </button>
+
         <button className="opt-row" onClick={() => dispatch({ type: 'sheet', sheet: 'fare' })}>
-          <IconClock width={18} height={18} color="var(--muted)" />
-          <span className="label">Fare breakdown</span>
+          <IconInfo width={18} height={18} color="var(--muted)" />
+          <span className="label">Why this price?</span>
           <span className="value">{quote ? formatGHS(total) : '—'}</span>
           <IconChevron width={16} height={16} color="var(--muted)" />
         </button>
@@ -374,15 +476,32 @@ export function TripSheet() {
 /* ------------------------------------------------------------------ */
 
 export function CompleteSheet() {
-  const { state, dispatch, quote, total } = useRyde();
+  const { state, dispatch, quote, total, cashback } = useRyde();
   const driver = state.driver;
   if (!driver || !quote) return null;
 
   const payment = PAYMENT_METHODS.find((p) => p.id === state.payment)!;
   const grandTotal = total + state.tip;
+  const business = state.tripProfile === 'business';
+  const splitCount = state.splitWith.length;
+  const share = splitFare(grandTotal, splitCount);
+  /** What this rider is actually charged, once the others have been asked. */
+  const owed = splitCount > 0 ? share.yours : grandTotal;
+  const cashbackDue = business ? 0 : Math.round(owed * cashback.tier.rate * 100) / 100;
 
   /** Settle on the server first — the ledger is the source of truth. */
   const finish = async () => {
+    /*
+     * A company trip is not a consumer charge. The payments service settles
+     * MoMo and wallet payments; corporate accounts are invoiced monthly on
+     * net-30 terms, so there is nothing to collect at the kerb and charging
+     * the rider's own Ryde Cash would be wrong.
+     */
+    if (business) {
+      dispatch({ type: 'closeTrip' });
+      return;
+    }
+
     if (api.isLive() && state.serverTripId) {
       try {
         const receipt = await api.completeTrip(state.serverTripId, state.tip);
@@ -431,11 +550,30 @@ export function CompleteSheet() {
               <span className="v">{formatGHS(state.tip)}</span>
             </div>
           )}
+          {splitCount > 0 && (
+            <div className="kv">
+              <span className="k">Split {splitCount + 1} ways</span>
+              <span className="v">{formatGHS(share.each)} each</span>
+            </div>
+          )}
           <div className="kv total">
-            <span className="k">Paid with {payment.label}</span>
-            <span className="v">{formatGHS(grandTotal)}</span>
+            <span className="k">
+              {business ? `Billed to ${COMPANY.name}` : `Paid with ${payment.label}`}
+            </span>
+            <span className="v">{formatGHS(business ? grandTotal : owed)}</span>
           </div>
         </div>
+
+        {business ? (
+          <p className="receipt-note">
+            {state.tripPurpose} · goes on this month's invoice, not your wallet
+          </p>
+        ) : (
+          <p className="receipt-note">
+            Earns {pointsFor(owed).toLocaleString()} points and {formatGHS(cashbackDue)} cashback
+            at {cashback.tier.name}
+          </p>
+        )}
 
         <div style={{ textAlign: 'center', marginTop: 6 }}>
           <strong style={{ fontSize: 15 }}>How was your ride with {driver.name.split(' ')[0]}?</strong>

@@ -60,11 +60,27 @@ export interface Quote {
   /** Fare before surge, for the strike-through. */
   baseFare: number;
   surge: number;
+  /** What the demand model asked for, before the cap trimmed it. */
+  rawSurge: number;
+  /** Cedis the cap took off this fare; 0 when the cap did not bind. */
+  capSaving: number;
   minutes: number;
   distanceKm: number;
   pickupMinutes: number;
   available: boolean;
   breakdown: { label: string; amount: number }[];
+}
+
+/**
+ * Ceiling on the demand multiplier, whatever the surge model asks for.
+ *
+ * A cap is the one fairness lever a rider can actually verify: they see the
+ * multiplier that was applied and what it would have been. Trips nobody
+ * chooses to take — a hospital run at 2am — get a tighter one.
+ */
+export interface FareRules {
+  surgeCap: number;
+  capReason: string;
 }
 
 function round50p(value: number): number {
@@ -77,6 +93,7 @@ export function quoteFor(
   route: Route,
   traffic: TrafficState,
   distanceToDriverKm: number,
+  rules?: FareRules,
 ): Quote {
   const minutes = route.baseMinutes * (1 + (traffic.factor - 1) * product.trafficResilience);
   const distance = route.distanceKm;
@@ -87,8 +104,12 @@ export function quoteFor(
   const beforeFees = Math.max(preMin, product.minimum);
   const baseFare = round50p(beforeFees + product.bookingFee);
 
-  const surge = product.id === 'share' ? 1 + (traffic.surge - 1) * 0.5 : traffic.surge;
+  // Sharing already halves the exposure to demand, so the multiplier is halved
+  // before the cap rather than after — the cap is a ceiling, not a floor.
+  const rawSurge = product.id === 'share' ? 1 + (traffic.surge - 1) * 0.5 : traffic.surge;
+  const surge = Math.min(rawSurge, rules?.surgeCap ?? Infinity);
   const fare = round50p(baseFare * surge);
+  const capSaving = round50p(baseFare * rawSurge) - fare;
 
   // Larger vehicles are thinner on the ground, so pickups take longer.
   const pickupMinutes = Math.max(
@@ -103,6 +124,8 @@ export function quoteFor(
     fare,
     baseFare,
     surge,
+    rawSurge,
+    capSaving,
     minutes: Math.max(2, Math.round(minutes)),
     distanceKm: distance,
     pickupMinutes,
@@ -114,6 +137,9 @@ export function quoteFor(
       { label: 'Booking fee', amount: product.bookingFee },
       ...(surge > 1
         ? [{ label: `Busy area (${surge.toFixed(1)}×)`, amount: fare - baseFare }]
+        : []),
+      ...(capSaving > 0
+        ? [{ label: `Surge cap (${rawSurge.toFixed(1)}× trimmed to ${surge.toFixed(1)}×)`, amount: -capSaving }]
         : []),
     ],
   };
