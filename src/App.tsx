@@ -3,6 +3,7 @@ import MapCanvas from './components/MapCanvas';
 import Modals from './components/Modals';
 import SearchPanel from './components/SearchPanel';
 import SignIn from './components/SignIn';
+import InstallPrompt, { OfflineChip } from './components/InstallPrompt';
 import * as api from './lib/api';
 import { ChoosingSheet, CompleteSheet, IdleSheet, MatchingSheet, TripSheet } from './components/RideSheets';
 import { AccountTab, ActivityTab, DriverModeApp, WalletTab } from './components/Tabs';
@@ -131,6 +132,7 @@ export default function App() {
             <>
               <div className="topbar">
                 <BrandMark />
+                <OfflineChip />
                 <TrafficChip />
                 <button
                   className="icon-btn"
@@ -158,6 +160,9 @@ export default function App() {
           )}
 
           <Modals />
+
+          {/* Offered only when the map is idle — never over a live trip. */}
+          {state.tab === 'ride' && state.phase === 'idle' && !state.driverMode && <InstallPrompt />}
 
           {state.toast && <div className="toast">{state.toast}</div>}
         </div>
