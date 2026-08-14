@@ -6,7 +6,8 @@ import SignIn from './components/SignIn';
 import InstallPrompt, { OfflineChip } from './components/InstallPrompt';
 import * as api from './lib/api';
 import { ChoosingSheet, CompleteSheet, IdleSheet, MatchingSheet, TripSheet } from './components/RideSheets';
-import { AccountTab, ActivityTab, DriverModeApp, WalletTab } from './components/Tabs';
+import { AccountTab, ActivityTab, WalletTab } from './components/Tabs';
+import DriverSheet, { DriverTopBar } from './components/DriverMode';
 import { IconCar, IconClock, IconShield, IconUser, IconWallet } from './components/Icons';
 import { useRyde, type Tab } from './store/RydeStore';
 
@@ -150,7 +151,10 @@ export default function App() {
           {state.phase === 'search' && !state.driverMode && <SearchPanel />}
 
           {state.driverMode ? (
-            <DriverModeApp />
+            <>
+              <DriverTopBar />
+              <DriverSheet />
+            </>
           ) : (
             <>
               {state.tab === 'activity' && <ActivityTab />}

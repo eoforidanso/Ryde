@@ -5,7 +5,7 @@ import { MINOR_STREETS } from '../data/minorStreets';
 import { pointAt, sliceFrom, type LatLng } from '../lib/router';
 import { VIEW_H, VIEW_W, fitCamera, project, toSmoothPath } from '../lib/projection';
 import { useElementSize } from '../lib/useElementSize';
-import { useRyde } from '../store/RydeStore';
+import { useMapView, useRyde } from '../store/RydeStore';
 
 /** Approximate Gulf of Guinea shoreline through the Accra–Tema coast. */
 const COAST: LatLng[] = [
@@ -262,7 +262,7 @@ function CarMarker({ at, bearing, bike, k }: { at: LatLng; bearing: number; bike
 
 export default function MapCanvas() {
   const { state } = useRyde();
-  const { phase, route, driverRoute, progress, pickup, dropoff, driver } = state;
+  const view = useMapView();
   const { ref, width, height } = useElementSize<SVGSVGElement>();
 
   // The viewBox matches the element's aspect ratio, so one world unit maps to a
@@ -270,39 +270,35 @@ export default function MapCanvas() {
   const vh = VIEW_H;
   const vw = height > 0 ? (VIEW_H * width) / height : VIEW_W;
 
-  const legRoute = phase === 'arriving' || phase === 'arrived' ? driverRoute : route;
-  const travelling = phase === 'arriving' || phase === 'ontrip';
-
   const remaining = useMemo(() => {
-    if (!legRoute) return [];
-    if (travelling) return sliceFrom(legRoute.points, progress);
-    return legRoute.points;
-  }, [legRoute, travelling, progress]);
+    if (!view.route) return [];
+    return view.moving ? sliceFrom(view.route.points, view.progress) : view.route.points;
+  }, [view.route, view.moving, view.progress]);
 
   const vehicle = useMemo(() => {
-    if (!legRoute) return null;
-    if (travelling) return pointAt(legRoute.points, progress);
-    if (phase === 'arrived') return { pos: legRoute.points[legRoute.points.length - 1], bearing: 0 };
+    if (!view.route) return null;
+    if (view.moving) return pointAt(view.route.points, view.progress);
+    if (view.parked) {
+      const pts = view.route.points;
+      return { pos: pts[pts.length - 1], bearing: 0 };
+    }
     return null;
-  }, [legRoute, progress, travelling, phase]);
+  }, [view.route, view.moving, view.parked, view.progress]);
 
   const camera = useMemo(() => {
     const box = { vw, vh };
-    if (phase === 'arriving' || phase === 'arrived') {
-      return fitCamera(driverRoute ? driverRoute.points : [pickup], {
-        ...box, padding: 14, maxScale: 5, focusY: 0.3, usableH: 0.5,
+    if (view.following && view.route) {
+      const ahead = view.moving ? sliceFrom(view.route.points, view.progress) : view.route.points;
+      const focus = vehicle ? [vehicle.pos, ...ahead] : ahead;
+      return fitCamera(focus, { ...box, padding: 14, maxScale: 4.5, focusY: 0.3, usableH: 0.5 });
+    }
+    if (view.route) {
+      return fitCamera(view.route.points, {
+        ...box, padding: 12, maxScale: 4, focusY: 0.18, usableH: 0.24,
       });
     }
-    if (phase === 'ontrip' && route && vehicle) {
-      return fitCamera([vehicle.pos, ...sliceFrom(route.points, progress)], {
-        ...box, padding: 14, maxScale: 4.5, focusY: 0.3, usableH: 0.5,
-      });
-    }
-    if (route) {
-      return fitCamera(route.points, { ...box, padding: 12, maxScale: 4, focusY: 0.18, usableH: 0.24 });
-    }
-    return fitCamera([pickup], { ...box, padding: 60, maxScale: 1.55, focusY: 0.33, usableH: 0.55 });
-  }, [phase, route, driverRoute, pickup, vehicle, progress, vw, vh]);
+    return fitCamera([view.origin], { ...box, padding: 60, maxScale: 1.55, focusY: 0.33, usableH: 0.55 });
+  }, [view, vehicle, vw, vh]);
 
   /** One screen pixel expressed in world units, after the camera scale. */
   const pxPerUnit = (height > 0 ? height / vh : 1) * camera.scale;
@@ -350,12 +346,13 @@ export default function MapCanvas() {
       <g className="map-camera" transform={`translate(${camera.x} ${camera.y}) scale(${camera.scale})`}>
         <Basemap k={zoomStep} />
         <MapLabels k={k} />
-        <DriverDots fleet={state.fleet} activeId={driver?.id} k={k} />
+        {/* The matched driver is drawn as the vehicle marker, so hide their dot. */}
+        <DriverDots fleet={state.fleet} activeId={state.driver?.id} k={k} />
 
-        {legRoute && (
+        {view.route && (
           <g>
             <path
-              d={toSmoothPath(legRoute.points, 7 * k)}
+              d={toSmoothPath(view.route.points, 7 * k)}
               fill="none" stroke="var(--route-done)" strokeWidth={7 * k}
               strokeLinecap="round" strokeLinejoin="round"
             />
@@ -374,15 +371,10 @@ export default function MapCanvas() {
           </g>
         )}
 
-        <PinPickup at={pickup} k={k} />
-        {dropoff && phase !== 'arriving' && phase !== 'arrived' && <PinDropoff at={dropoff} k={k} />}
+        <PinPickup at={view.origin} k={k} />
+        {view.destination && <PinDropoff at={view.destination} k={k} />}
         {vehicle && (
-          <CarMarker
-            at={vehicle.pos}
-            bearing={vehicle.bearing}
-            bike={driver?.product === 'okada' || driver?.product === 'aboboya'}
-            k={k}
-          />
+          <CarMarker at={vehicle.pos} bearing={vehicle.bearing} bike={view.bike} k={k} />
         )}
       </g>
     </svg>

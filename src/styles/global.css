@@ -1189,3 +1189,106 @@ input {
   border-color: transparent;
   color: var(--muted);
 }
+
+/* ============================================================
+   Driver mode
+   ============================================================ */
+
+.sheet.offer {
+  border-top-color: rgba(20, 208, 125, 0.45);
+  box-shadow: var(--shadow-sheet), 0 0 0 1px rgba(20, 208, 125, 0.12) inset;
+  animation: offer-in 0.36s var(--ease);
+}
+
+@keyframes offer-in {
+  from { transform: translateY(30%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.offer-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.offer-timer {
+  position: relative;
+  width: 60px;
+  height: 60px;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.offer-timer svg {
+  position: absolute;
+  inset: 0;
+}
+
+.offer-count {
+  font-size: 19px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.offer-meta {
+  display: flex;
+  gap: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.offer-meta strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.journey-place {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.journey-note {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: rgba(20, 208, 125, 0.1);
+  border: 1px solid rgba(20, 208, 125, 0.28);
+  color: var(--text-dim);
+  font-size: 13.5px;
+  margin-bottom: 12px;
+}
+
+.nav-banner strong { color: var(--text); }
+.nav-banner svg { color: var(--brand-bright); flex: none; }
+
+.earned-card {
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(242, 193, 78, 0.26), transparent 55%),
+    linear-gradient(150deg, #2a2210, #14110a);
+  border: 1px solid rgba(242, 193, 78, 0.3);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  margin-bottom: 14px;
+}

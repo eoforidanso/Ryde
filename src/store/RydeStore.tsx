@@ -17,13 +17,19 @@ import {
   type ProductId,
 } from '../data/products';
 import { quoteFor, trafficAt, type Quote, type TrafficState } from '../lib/pricing';
-import { buildRoute, nearestNode, type LatLng, type Route } from '../lib/router';
+import { buildRoute, nearestNode, pointAt, type LatLng, type Route } from '../lib/router';
+import { createJob, type DriverJob } from '../lib/driverJobs';
 
 /** Trips run compressed so a 25-minute ride plays out in about 27 seconds. */
 const TIME_SCALE = 55;
 const TICK_MS = 90;
 /** Background traffic drifts only slightly faster than real time. */
 const FLEET_SPEEDUP = 5;
+/** Real seconds a driver has to accept an offer, as in the real app. */
+const OFFER_SECONDS = 15;
+/** Real seconds of searching before the next offer arrives. */
+const SEARCH_MIN_S = 4;
+const SEARCH_MAX_S = 11;
 
 export type Phase =
   | 'idle'
@@ -36,6 +42,25 @@ export type Phase =
   | 'complete';
 
 export type Tab = 'ride' | 'activity' | 'wallet' | 'account';
+
+/** Driver-side lifecycle, mirroring the rider trip from the other seat. */
+export type DriverPhase =
+  | 'offline'
+  | 'idle'
+  | 'incoming'
+  | 'to_pickup'
+  | 'waiting'
+  | 'on_trip'
+  | 'summary';
+
+export interface DriverLogEntry {
+  id: string;
+  rider: string;
+  dropoff: string;
+  earnings: number;
+  minutes: number;
+  km: number;
+}
 
 export interface CompletedTrip {
   id: string;
@@ -87,6 +112,19 @@ export interface State {
   driverOnline: boolean;
   driverEarnings: number;
   driverTripsToday: number;
+  driverPhase: DriverPhase;
+  driverJob: DriverJob | null;
+  /** 0–1 through the current driving leg. */
+  driverProgress: number;
+  driverElapsed: number;
+  /** The driver's own vehicle position. */
+  driverPos: LatLng;
+  /** Real seconds left to accept an offer. */
+  acceptSecondsLeft: number;
+  /** Real seconds spent online today. */
+  onlineSeconds: number;
+  driverLog: DriverLogEntry[];
+  lastEarned: number;
   /** Trip id issued by the payments service; null when running standalone. */
   serverTripId: string | null;
   sheet: null | 'safety' | 'payment' | 'fare' | 'schedule' | 'contact';
@@ -116,7 +154,13 @@ type Action =
   | { type: 'topUp'; amount: number; method: string }
   | { type: 'driverMode'; on: boolean }
   | { type: 'driverOnline'; on: boolean }
-  | { type: 'driverAccept'; fare: number }
+  | { type: 'driverIncoming'; job: DriverJob }
+  | { type: 'driverAccept' }
+  | { type: 'driverDecline' }
+  | { type: 'driverPhase'; phase: DriverPhase }
+  | { type: 'driverTick'; elapsed: number; progress: number; pos: LatLng; acceptSecondsLeft: number; onlineSeconds: number }
+  | { type: 'driverComplete' }
+  | { type: 'driverDismissSummary' }
   | { type: 'schedule'; when: string | null }
   | { type: 'serverTrip'; tripId: string | null }
   | { type: 'syncWallet'; balance: number };
@@ -184,6 +228,16 @@ const initialState: State = {
   driverOnline: false,
   driverEarnings: 246.5,
   driverTripsToday: 7,
+  driverPhase: 'offline',
+  driverJob: null,
+  driverProgress: 0,
+  driverElapsed: 0,
+  // Parked at Shiashie, a realistic place to wait for airport and Legon runs.
+  driverPos: { lat: 5.6222, lng: -0.1794 },
+  acceptSecondsLeft: 0,
+  onlineSeconds: 6 * 3600 + 12 * 60,
+  driverLog: [],
+  lastEarned: 0,
   serverTripId: null,
   sheet: null,
   toast: null,
@@ -331,18 +385,92 @@ function reducer(state: State, action: Action): State {
       };
 
     case 'driverMode':
-      return { ...state, driverMode: action.on, tab: 'ride', phase: 'idle' };
-
-    case 'driverOnline':
-      return { ...state, driverOnline: action.on };
-
-    case 'driverAccept':
       return {
         ...state,
-        driverEarnings: state.driverEarnings + action.fare,
-        driverTripsToday: state.driverTripsToday + 1,
-        toast: `Trip completed — GH₵${action.fare.toFixed(2)} earned`,
+        driverMode: action.on,
+        tab: 'ride',
+        phase: 'idle',
+        // Leaving driver mode mid-job would strand a rider; require going
+        // offline first, which the UI enforces.
+        driverPhase: action.on ? (state.driverOnline ? 'idle' : 'offline') : 'offline',
+        driverOnline: action.on ? state.driverOnline : false,
+        driverJob: action.on ? state.driverJob : null,
       };
+
+    case 'driverOnline':
+      return {
+        ...state,
+        driverOnline: action.on,
+        driverPhase: action.on ? 'idle' : 'offline',
+        driverJob: action.on ? state.driverJob : null,
+        driverProgress: 0,
+        driverElapsed: 0,
+        toast: action.on ? 'You are online — looking for trips' : 'You are offline',
+      };
+
+    case 'driverIncoming':
+      return {
+        ...state,
+        driverPhase: 'incoming',
+        driverJob: action.job,
+        acceptSecondsLeft: OFFER_SECONDS,
+        driverProgress: 0,
+        driverElapsed: 0,
+      };
+
+    case 'driverAccept':
+      return { ...state, driverPhase: 'to_pickup', driverProgress: 0, driverElapsed: 0 };
+
+    case 'driverDecline':
+      return {
+        ...state,
+        driverPhase: 'idle',
+        driverJob: null,
+        driverProgress: 0,
+        driverElapsed: 0,
+        acceptSecondsLeft: 0,
+      };
+
+    case 'driverPhase':
+      return { ...state, driverPhase: action.phase, driverProgress: 0, driverElapsed: 0 };
+
+    case 'driverTick':
+      return {
+        ...state,
+        driverElapsed: action.elapsed,
+        driverProgress: action.progress,
+        driverPos: action.pos,
+        acceptSecondsLeft: action.acceptSecondsLeft,
+        onlineSeconds: action.onlineSeconds,
+      };
+
+    case 'driverComplete': {
+      const job = state.driverJob;
+      if (!job) return state;
+      return {
+        ...state,
+        driverPhase: 'summary',
+        driverEarnings: state.driverEarnings + job.earnings,
+        driverTripsToday: state.driverTripsToday + 1,
+        lastEarned: job.earnings,
+        driverLog: [
+          {
+            id: job.id,
+            rider: job.riderName,
+            dropoff: job.dropoff.name,
+            earnings: job.earnings,
+            minutes: job.tripMinutes,
+            km: job.trip.distanceKm,
+          },
+          ...state.driverLog,
+        ].slice(0, 12),
+        // The driver ends the trip where the rider got out.
+        driverPos: { lat: job.dropoff.lat, lng: job.dropoff.lng },
+      };
+    }
+
+    case 'driverDismissSummary':
+      return { ...state, driverPhase: 'idle', driverJob: null, driverProgress: 0, driverElapsed: 0 };
 
     case 'serverTrip':
       return { ...state, serverTripId: action.tripId };
@@ -374,6 +502,15 @@ function phaseDuration(state: State, quote: Quote | null): number {
   }
 }
 
+/** Duration in simulated seconds of each driving leg. */
+function driverLegDuration(state: State): number {
+  const job = state.driverJob;
+  if (!job) return 0;
+  if (state.driverPhase === 'to_pickup') return job.pickupMinutes * 60;
+  if (state.driverPhase === 'on_trip') return job.tripMinutes * 60;
+  return 0;
+}
+
 function placeFrom(pos: LatLng, name: string, area: string): Place {
   return { id: `pt-${name}`, name, area, lat: pos.lat, lng: pos.lng, node: nearestNode(pos), kind: 'landmark' };
 }
@@ -397,6 +534,96 @@ function wander(fleet: Driver[], dtSec: number): Driver[] {
       heading: (Math.atan2(dLng, dLat) * 180) / Math.PI,
     };
   });
+}
+
+
+/**
+ * Advance the driver simulation by one tick.
+ *
+ * Offers arrive after a short random search, expire on a real-time countdown
+ * the way they do in the real app, and the two driving legs are time-compressed
+ * so a 20-minute run plays out in about twenty seconds.
+ */
+function driveTick(
+  s: State,
+  dispatch: (a: Action) => void,
+  traffic: TrafficState,
+  searchTarget: { current: number },
+) {
+  const dtReal = TICK_MS / 1000;
+  const dtSim = dtReal * TIME_SCALE;
+  const onlineSeconds = s.onlineSeconds + dtReal;
+
+  // Searching: wait out the interval, then offer a trip.
+  if (s.driverPhase === 'idle') {
+    const elapsed = s.driverElapsed + dtReal;
+    if (elapsed >= searchTarget.current) {
+      const job = createJob(s.driverPos, traffic);
+      searchTarget.current = SEARCH_MIN_S + Math.random() * (SEARCH_MAX_S - SEARCH_MIN_S);
+      if (job) {
+        dispatch({ type: 'driverIncoming', job });
+        return;
+      }
+    }
+    dispatch({
+      type: 'driverTick',
+      elapsed,
+      progress: Math.min(1, elapsed / searchTarget.current),
+      pos: s.driverPos,
+      acceptSecondsLeft: 0,
+      onlineSeconds,
+    });
+    return;
+  }
+
+  // Offer on screen: count down in real seconds, then let it lapse.
+  if (s.driverPhase === 'incoming') {
+    const left = s.acceptSecondsLeft - dtReal;
+    if (left <= 0) {
+      dispatch({ type: 'driverDecline' });
+      dispatch({ type: 'toast', message: 'Offer expired' });
+      return;
+    }
+    dispatch({
+      type: 'driverTick',
+      elapsed: s.driverElapsed + dtReal,
+      progress: 1 - left / OFFER_SECONDS,
+      pos: s.driverPos,
+      acceptSecondsLeft: left,
+      onlineSeconds,
+    });
+    return;
+  }
+
+  // Waiting at the kerb — the driver decides when to start, so only the clock
+  // moves here.
+  if (s.driverPhase === 'waiting' || s.driverPhase === 'summary') {
+    dispatch({
+      type: 'driverTick',
+      elapsed: s.driverElapsed + dtReal,
+      progress: s.driverProgress,
+      pos: s.driverPos,
+      acceptSecondsLeft: 0,
+      onlineSeconds,
+    });
+    return;
+  }
+
+  // Driving: follow the active route.
+  const duration = driverLegDuration(s);
+  if (duration === 0 || !s.driverJob) return;
+
+  const leg = s.driverPhase === 'to_pickup' ? s.driverJob.toPickup : s.driverJob.trip;
+  const elapsed = s.driverElapsed + dtSim;
+  const progress = Math.min(1, elapsed / duration);
+  const { pos } = pointAt(leg.points, progress);
+
+  dispatch({ type: 'driverTick', elapsed, progress, pos, acceptSecondsLeft: 0, onlineSeconds });
+
+  if (progress >= 1) {
+    if (s.driverPhase === 'to_pickup') dispatch({ type: 'driverPhase', phase: 'waiting' });
+    else dispatch({ type: 'driverComplete' });
+  }
 }
 
 interface Ctx {
@@ -443,6 +670,13 @@ export function RydeProvider({ children }: { children: ReactNode }) {
   const quoteRef = useRef(quote);
   quoteRef.current = quote;
 
+  const trafficRef = useRef(traffic);
+  trafficRef.current = traffic;
+
+  // How long the current "searching" stretch should last, re-rolled per offer
+  // so requests don't arrive on a metronome.
+  const searchTarget = useRef(SEARCH_MIN_S + Math.random() * (SEARCH_MAX_S - SEARCH_MIN_S));
+
   const tickCount = useRef(0);
 
   useEffect(() => {
@@ -450,6 +684,13 @@ export function RydeProvider({ children }: { children: ReactNode }) {
       const s = stateRef.current;
       const dt = (TICK_MS / 1000) * TIME_SCALE;
       const duration = phaseDuration(s, quoteRef.current);
+
+      // ---- Driver side -------------------------------------------------
+      if (s.driverMode && s.driverOnline) {
+        driveTick(s, dispatch, trafficRef.current, searchTarget);
+        // A driver on a job doesn't need the rider simulation running too.
+        if (s.driverPhase !== 'offline') return;
+      }
 
       tickCount.current += 1;
       // Nothing is moving between trips, so ease off the fleet updates.
@@ -515,5 +756,80 @@ export function useRyde(): Ctx {
   const ctx = useContext(RydeContext);
   if (!ctx) throw new Error('useRyde must be used inside RydeProvider');
   return ctx;
+}
+
+export interface MapView {
+  /** Polyline currently being driven, or the previewed trip. */
+  route: Route | null;
+  /** 0–1 along that route. */
+  progress: number;
+  /** Whether a vehicle marker should be drawn and animated. */
+  moving: boolean;
+  /** Park the marker at the end of the route without animating. */
+  parked: boolean;
+  origin: LatLng;
+  destination: LatLng | null;
+  bike: boolean;
+  /** Fit the camera tightly, as when following a car. */
+  following: boolean;
+}
+
+/**
+ * What the map should draw right now, from whichever seat the user is in.
+ *
+ * Keeping this in one place means MapCanvas has no idea whether it is showing
+ * a rider waiting for a car or a driver running a job.
+ */
+export function useMapView(): MapView {
+  const { state } = useRyde();
+
+  return useMemo(() => {
+    if (state.driverMode) {
+      const job = state.driverJob;
+      const at = state.driverPos;
+
+      if (!job || state.driverPhase === 'idle' || state.driverPhase === 'offline') {
+        return {
+          route: null, progress: 0, moving: false, parked: false,
+          origin: at, destination: null, bike: false, following: false,
+        };
+      }
+
+      if (state.driverPhase === 'incoming') {
+        // Preview the whole job: where to collect, and where it ends up.
+        return {
+          route: job.preview, progress: 0, moving: false, parked: false,
+          origin: at, destination: job.pickup, bike: false, following: false,
+        };
+      }
+
+      const onTrip = state.driverPhase === 'on_trip';
+      const leg = onTrip ? job.trip : job.toPickup;
+      return {
+        route: leg,
+        progress: state.driverProgress,
+        moving: state.driverPhase === 'to_pickup' || onTrip,
+        parked: state.driverPhase === 'waiting' || state.driverPhase === 'summary',
+        origin: at,
+        destination: onTrip ? job.dropoff : job.pickup,
+        bike: false,
+        following: true,
+      };
+    }
+
+    // Rider side.
+    const arriving = state.phase === 'arriving' || state.phase === 'arrived';
+    const leg = arriving ? state.driverRoute : state.route;
+    return {
+      route: leg,
+      progress: state.progress,
+      moving: state.phase === 'arriving' || state.phase === 'ontrip',
+      parked: state.phase === 'arrived',
+      origin: state.pickup,
+      destination: arriving ? null : state.dropoff,
+      bike: state.driver?.product === 'okada' || state.driver?.product === 'aboboya',
+      following: arriving || state.phase === 'ontrip',
+    };
+  }, [state]);
 }
 
