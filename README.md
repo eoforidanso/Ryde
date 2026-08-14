@@ -6,10 +6,18 @@ Greater Accra.
 
 **Live demo → https://eoforidanso.github.io/Ryde/**
 
+It's an installable PWA — open it on a phone and add it to your home screen. It
+then runs full screen and **works offline**, which matters more than usual here:
+the whole app shell is client-side, and connectivity across Accra is patchy.
+
 The deployed build runs on simulated state with no backend: GitHub Pages is
 static hosting, so the payments service in [`server/`](server) cannot run
 alongside it and sign-in is skipped. Run it locally to exercise the real
 Hubtel integration.
+
+Payment endpoints are deliberately excluded from the service worker cache — a
+balance or charge status must never be served stale, so those requests go to
+the network and fail loudly when there's no connection.
 
 ```bash
 npm install
